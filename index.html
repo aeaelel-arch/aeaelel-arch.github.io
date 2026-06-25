@@ -1,94 +1,719 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QC Kain AI</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Payment Voucher Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
-        body { background: #1a1a1a; color: white; text-align: center; padding: 10px; }
-        /* Video dan Canvas dibuat terlihat agar browser tidak mematikannya */
-        video, canvas { width: 90%; max-width: 400px; border: 2px solid #555; background: #000; margin-top: 10px; }
-        button { background: #2ecc71; padding: 15px; width: 90%; border: none; color: white; font-weight: bold; font-size: 16px; margin-top: 20px; }
+      @media print {
+        body * {
+          visibility: hidden;
+        }
+        #printArea,
+        #printArea * {
+          visibility: visible;
+        }
+        #printArea {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+        }
+        .no-print {
+          display: none !important;
+        }
+      }
     </style>
-</head>
-<body>
-    <h2>QC Kain (Live View)</h2>
-    <div id="status">Status: Standby</div>
-    
-    <video id="videoInput" autoplay playsinline></video>
-    <canvas id="canvasOutput"></canvas>
+  </head>
+  <body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col">
+    <header class="bg-blue-700 text-white shadow-md no-print">
+      <div
+        class="container mx-auto px-6 py-4 flex justify-between items-center"
+      >
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          <i class="fa-solid fa-file-invoice-dollar text-amber-400"></i> Payment
+          Voucher Generator
+        </h1>
+        <nav class="flex space-x-2">
+          <button
+            onclick="switchTab('upload-tab')"
+            id="btn-upload-tab"
+            class="px-4 py-2 rounded bg-blue-900 font-medium transition"
+          >
+            Upload CSV
+          </button>
+          <button
+            onclick="switchTab('history-tab')"
+            id="btn-history-tab"
+            class="px-4 py-2 rounded hover:bg-blue-600 font-medium transition"
+          >
+            Data Voucher & Cetak
+          </button>
+        </nav>
+      </div>
+    </header>
 
-    <br>
-    <button id="startBtn" disabled>Mulai Pemindaian</button>
+    <main class="container mx-auto px-6 py-8 flex-1">
+      <div id="upload-tab" class="block">
+        <div
+          class="bg-white p-6 rounded-xl shadow border border-gray-200 mb-6 max-w-2xl mx-auto text-center"
+        >
+          <h2 class="text-lg font-bold mb-2">Upload File Data.csv</h2>
+          <p class="text-gray-500 text-sm mb-4">
+            Pastikan file dalam format CSV dan berisi data pada kolom A sampai E
+            (Tgl, No Voucher, Deskripsi, Credit, Kode TR).
+          </p>
+          <label
+            class="flex flex-col items-center justify-center border-2 border-dashed border-blue-300 rounded-lg p-8 cursor-pointer hover:bg-blue-50 transition"
+          >
+            <i class="fa-solid fa-upload text-3xl text-blue-500 mb-3"></i>
+            <span class="font-medium text-gray-700"
+              >Pilih / Tarik File CSV Kesini</span
+            >
+            <input
+              type="file"
+              id="csvFileInput"
+              accept=".csv"
+              class="hidden"
+              onchange="handleFileUpload(event)"
+            />
+          </label>
+          <div
+            id="uploadStatus"
+            class="mt-4 text-sm font-semibold text-red-600 hidden"
+          ></div>
+        </div>
+
+        <div
+          id="previewContainer"
+          class="hidden bg-white rounded-xl shadow border border-gray-200 overflow-hidden"
+        >
+          <div
+            class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50"
+          >
+            <div>
+              <h3 class="font-bold text-gray-800">
+                Verifikasi Konsolidasi Data
+              </h3>
+              <p class="text-xs text-gray-500">
+                Data dengan kode voucher yang sama otomatis digabungkan secara
+                rapi.
+              </p>
+            </div>
+            <button
+              onclick="generateVouchers()"
+              class="bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2 rounded shadow transition"
+            >
+              Proses & Simpan Ke Riwayat
+            </button>
+          </div>
+          <div class="overflow-x-auto max-h-[500px]">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead
+                class="bg-gray-100 text-gray-600 sticky top-0 shadow-sm z-10"
+              >
+                <tr>
+                  <th class="p-3 w-12 text-center">
+                    <input
+                      type="checkbox"
+                      id="selectAll"
+                      checked
+                      onchange="toggleSelectAll(this)"
+                    />
+                  </th>
+                  <th class="p-3">Tanggal (Col A)</th>
+                  <th class="p-3">Kode Voucher (Col B)</th>
+                  <th class="p-3 text-right">Total Nominal (Col D)</th>
+                  <th class="p-3">Rincian Deskripsi (Col C & E)</th>
+                </tr>
+              </thead>
+              <tbody
+                id="previewTableBody"
+                class="divide-y divide-gray-200"
+              ></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="history-tab" class="hidden flex flex-col lg:flex-row gap-6">
+        <div
+          class="w-full lg:w-1/3 bg-white rounded-xl border border-gray-200 shadow flex flex-col h-[calc(100vh-72px-2rem)] sticky top-0"
+        >
+          <div
+            class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-xl"
+          >
+            <h3 class="font-bold text-gray-800">Daftar Voucher</h3>
+            <button
+              onclick="clearDatabase()"
+              class="text-xs text-red-500 hover:underline"
+            >
+              Hapus Semua
+            </button>
+          </div>
+          <div
+            id="pvListContainer"
+            class="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50"
+          >
+            <p class="text-gray-400 text-center py-6 text-sm">
+              Belum ada data.
+            </p>
+          </div>
+        </div>
+
+        <div
+          class="w-full lg:w-2/3 bg-gray-200 rounded-xl border border-gray-300 shadow flex flex-col h-full"
+        >
+          <div
+            class="p-4 bg-white border-b border-gray-200 flex flex-wrap justify-between items-center rounded-t-xl gap-4"
+          >
+            <div class="flex items-center gap-3 flex-1 min-w-[250px]">
+              <label class="text-sm font-bold text-gray-700 whitespace-nowrap"
+                >Paid To (Penerima):</label
+              >
+              <input
+                type="text"
+                id="paidToInput"
+                placeholder="Ketik nama penerima disini..."
+                class="border rounded px-3 py-1.5 text-sm w-full bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition"
+              />
+            </div>
+            <button
+              onclick="window.print()"
+              class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded font-medium transition shadow-sm flex items-center gap-2"
+            >
+              <i class="fa-solid fa-print"></i> Cetak Voucher
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-scroll p-6 flex justify-center">
+            <div
+              id="printArea"
+              class="bg-white shadow-lg p-10 w-[210mm] min-h-[148mm] h-full text-black text-sm relative border border-gray-300 font-sans"
+            >
+              <p class="text-center text-gray-400 italic py-20">
+                Pilih voucher dari daftar di sebelah kiri.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer
+      class="bg-gray-800 text-gray-400 py-3 text-center text-xs mt-auto no-print"
+    >
+      <p>&copy; 2026 Local Payment Voucher System</p>
+    </footer>
 
     <script>
-        let video = document.getElementById('videoInput');
-        let canvas = document.getElementById('canvasOutput');
-        let ctx = canvas.getContext('2d');
-        let status = document.getElementById('status');
-        let src, dst, gray, thresh, hierarchy;
+      let rawData = [];
+      let db;
 
-        function onOpenCvReady() {
-            document.getElementById('startBtn').disabled = false;
-            status.innerText = "Status: AI Siap!";
+      let voucherMergeStates = {};
+      let currentSelectedType = ""; // 'merged' atau 'single'
+      let currentSelectedId = null;
+      let currentSelectedCode = "";
+
+      // 1. Setup IndexedDB
+      const request = indexedDB.open("VoucherDB", 2); // Upgrade version ke 2 untuk penyesuaian skema baru
+      request.onupgradeneeded = (e) => {
+        db = e.target.result;
+        if (db.objectStoreNames.contains("vouchers")) {
+          db.deleteObjectStore("vouchers");
         }
+        db.createObjectStore("vouchers", {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+      };
+      request.onsuccess = (e) => {
+        db = e.target.result;
+        loadHistory();
+      };
 
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" }, audio: false 
-                });
-                video.srcObject = stream;
-                video.play();
-                status.innerText = "Status: Kamera Aktif...";
-                
-                // Tunggu sampai video benar-benar punya dimensi
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    // Inisialisasi Matriks
-                    src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                    dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                    gray = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-                    thresh = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-                    hierarchy = new cv.Mat();
-                    
-                    status.innerText = "Status: Memulai QC...";
-                    processVideo();
-                };
-            } catch (err) { status.innerText = "Error: " + err.message; }
-        }
+      // 2. Navigasi Tab
+      function switchTab(tabId) {
+        document
+          .getElementById("upload-tab")
+          .classList.toggle("hidden", tabId !== "upload-tab");
+        document
+          .getElementById("history-tab")
+          .classList.toggle("hidden", tabId !== "history-tab");
 
-        function processVideo() {
-            let cap = new cv.VideoCapture(video);
-            
-            function loop() {
-                cap.read(src);
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
-                
-                let contours = new cv.MatVector();
-                cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                
-                src.copyTo(dst);
-                for (let i = 0; i < contours.size(); ++i) {
-                    let cnt = contours.get(i);
-                    let area = cv.contourArea(cnt);
-                    if (area > 50 && area < 5000) {
-                        let rect = cv.boundingRect(cnt);
-                        cv.rectangle(dst, new cv.Point(rect.x, rect.y), new cv.Point(rect.x + rect.width, rect.y + rect.height), [255, 0, 0, 255], 3);
-                    }
-                    cnt.delete();
-                }
-                cv.imshow('canvasOutput', dst);
-                contours.delete();
-                requestAnimationFrame(loop);
+        document.getElementById("btn-upload-tab").className =
+          tabId === "upload-tab"
+            ? "px-4 py-2 rounded bg-blue-900 font-medium transition"
+            : "px-4 py-2 rounded hover:bg-blue-600 font-medium transition";
+
+        document.getElementById("btn-history-tab").className =
+          tabId === "history-tab"
+            ? "px-4 py-2 rounded bg-blue-900 font-medium transition"
+            : "px-4 py-2 rounded hover:bg-blue-600 font-medium transition";
+      }
+
+      // 3. Upload & Parse CSV
+      function handleFileUpload(event) {
+        const file = event.target.files[0];
+        const statusEl = document.getElementById("uploadStatus");
+        if (!file) return;
+
+        statusEl.classList.add("hidden");
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+          const textData = e.target.result;
+          Papa.parse(textData, {
+            header: false,
+            skipEmptyLines: true,
+            complete: function (results) {
+              processParsedData(results.data);
+            },
+            error: function (error) {
+              statusEl.innerText = "Gagal membaca CSV: " + error.message;
+              statusEl.classList.remove("hidden");
+            },
+          });
+        };
+        reader.readAsText(file);
+      }
+
+      // 4. Proses Data dengan Proteksi Duplikasi & Kolom Akurat (A - E)
+      function processParsedData(dataArray) {
+        rawData = [];
+        const statusEl = document.getElementById("uploadStatus");
+        let grouped = {};
+
+        dataArray.forEach((row) => {
+          const colA = row[0] ? row[0].trim() : ""; // Tanggal
+          const colB = row[1] ? row[1].trim() : ""; // Kode Voucher
+
+          // Lewati baris kosong atau baris header
+          if (
+            colA &&
+            colB &&
+            colA.toLowerCase() !== "date" &&
+            colA.toLowerCase() !== "tgl." &&
+            colA.toLowerCase() !== "tanggal"
+          ) {
+            let mainDesc = row[2] ? row[2].toString().trim() : ""; // Deskripsi Utama (Col C)
+            let amountStr = row[3]
+              ? row[3].toString().replace(/[^0-9.-]+/g, "")
+              : "0"; // CREDIT / Nominal (Col D)
+            let amount = parseFloat(amountStr) || 0;
+            let kodeTr = row[4] ? row[4].toString().trim() : ""; // Kode TR (Col E)
+
+            // Bungkus deskripsi dengan Kode TR jika tersedia
+            let fullDesc = mainDesc;
+            if (kodeTr) {
+              fullDesc += ` [${kodeTr}]`;
             }
-            loop();
+
+            // Abaikan baris kosong yang rusak
+            if (amount === 0 && fullDesc === "") return;
+
+            // Gabungkan baris data secara otomatis berdasarkan Kode Voucher
+            if (!grouped[colB]) {
+              grouped[colB] = {
+                date: colA,
+                voucherCode: colB,
+                items: [],
+                total: 0,
+              };
+            }
+
+            // Mencegah item yang sama persis masuk dua kali akibat anomali split baris CSV
+            const isDuplicateItem = grouped[colB].items.some(
+              (item) => item.description === fullDesc && item.amount === amount,
+            );
+            if (!isDuplicateItem) {
+              grouped[colB].items.push({
+                description: fullDesc,
+                amount: amount,
+              });
+              grouped[colB].total += amount;
+            }
+          }
+        });
+
+        rawData = Object.values(grouped);
+
+        if (rawData.length === 0) {
+          statusEl.innerText =
+            "Tidak ditemukan data valid pada kolom A sampai E.";
+          statusEl.classList.remove("hidden");
+          document.getElementById("previewContainer").classList.add("hidden");
+          return;
         }
 
-        document.getElementById('startBtn').onclick = startCamera;
+        renderPreviewTable();
+      }
+
+      // 5. Tampilkan Tabel Preview Tab 1
+      function renderPreviewTable() {
+        const tbody = document.getElementById("previewTableBody");
+        tbody.innerHTML = "";
+
+        rawData.forEach((item, index) => {
+          const tr = document.createElement("tr");
+          tr.className = "hover:bg-blue-50";
+
+          let descHTML = item.items
+            .map(
+              (it) =>
+                `• ${it.description} (<span class="font-mono text-xs">Rp ${it.amount.toLocaleString("id-ID")}</span>)`,
+            )
+            .join("<br>");
+
+          tr.innerHTML = `
+                    <td class="p-3 text-center border-b"><input type="checkbox" class="row-checkbox cursor-pointer" data-index="${index}" checked></td>
+                    <td class="p-3 border-b">${item.date}</td>
+                    <td class="p-3 border-b font-semibold text-blue-700">${item.voucherCode}</td>
+                    <td class="p-3 border-b text-right font-mono font-bold text-gray-900">Rp ${item.total.toLocaleString("id-ID")}</td>
+                    <td class="p-3 border-b text-gray-600 text-xs">${descHTML}</td>
+                `;
+          tbody.appendChild(tr);
+        });
+
+        document.getElementById("previewContainer").classList.remove("hidden");
+      }
+
+      function toggleSelectAll(source) {
+        document
+          .querySelectorAll(".row-checkbox")
+          .forEach((cb) => (cb.checked = source.checked));
+      }
+
+      // 6. Menyimpan Ke Database Lokal
+      function generateVouchers() {
+        const checkedBoxes = document.querySelectorAll(".row-checkbox:checked");
+        if (checkedBoxes.length === 0) {
+          alert("Silakan pilih minimal 1 data voucher.");
+          return;
+        }
+
+        const selectedData = Array.from(checkedBoxes).map(
+          (cb) => rawData[cb.getAttribute("data-index")],
+        );
+
+        const tx = db.transaction("vouchers", "readwrite");
+        const store = tx.objectStore("vouchers");
+
+        selectedData.forEach((item) => {
+          store.add({
+            voucherCode: item.voucherCode,
+            date: item.date,
+            paidTo: "",
+            items: item.items,
+            total: item.total,
+          });
+        });
+
+        tx.oncomplete = () => {
+          loadHistory();
+          switchTab("history-tab");
+        };
+      }
+
+      // 7. Render History Sidebar (Fleksibilitas Gabung/Pisah Cetak Tetap Aktif)
+      function loadHistory() {
+        const container = document.getElementById("pvListContainer");
+        container.innerHTML = "";
+
+        const tx = db.transaction("vouchers", "readonly");
+        const store = tx.objectStore("vouchers");
+        const request = store.getAll();
+
+        request.onsuccess = () => {
+          const allRecords = request.result;
+          if (allRecords.length === 0) {
+            container.innerHTML =
+              '<p class="text-gray-400 text-center py-6 text-sm">Belum ada data.</p>';
+            return;
+          }
+
+          // Tampilkan yang terbaru di atas
+          allRecords.reverse().forEach((rec) => {
+            const code = rec.voucherCode;
+
+            if (voucherMergeStates[code] === undefined) {
+              voucherMergeStates[code] = true; // Default diset True (Terbuka dalam kondisi tergabung rapi)
+            }
+
+            const isMerged = voucherMergeStates[code];
+
+            const card = document.createElement("div");
+            card.className =
+              "bg-white border rounded-xl p-3 shadow-sm border-gray-200 flex flex-col gap-2";
+
+            const headerDiv = document.createElement("div");
+            headerDiv.className =
+              "flex justify-between items-center border-b pb-2 border-gray-100 bg-gray-50 -mx-3 -mt-3 p-2.5 rounded-t-xl";
+            headerDiv.innerHTML = `
+                        <span class="font-bold text-blue-700 text-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-folder text-amber-500 text-xs"></i> ${code}
+                        </span>
+                        <label class="flex items-center gap-1 text-[11px] text-gray-600 font-bold cursor-pointer bg-white px-2 py-0.5 rounded border shadow-xs hover:bg-gray-50 transition">
+                            <input type="checkbox" class="code-toggle-merge w-3.5 h-3.5 text-blue-600 rounded" data-code="${code}" ${isMerged ? "checked" : ""}>
+                            Gabung
+                        </label>
+                    `;
+
+            headerDiv.querySelector(".code-toggle-merge").onchange = function (
+              e,
+            ) {
+              voucherMergeStates[code] = e.target.checked;
+              loadHistory();
+            };
+            card.appendChild(headerDiv);
+
+            // Opsi 1: Tampilan Tergabung Komplit
+            if (isMerged) {
+              const isSelected =
+                currentSelectedType === "merged" &&
+                currentSelectedCode === code;
+              const itemDiv = document.createElement("div");
+              itemDiv.className = `p-2 rounded-lg cursor-pointer transition text-xs flex flex-col gap-1 border ${isSelected ? "bg-blue-600 text-white border-blue-600" : "hover:bg-blue-50 bg-blue-50/50 text-gray-800 border-blue-100"}`;
+
+              itemDiv.innerHTML = `
+                            <div class="flex justify-between font-bold">
+                                <span><i class="fa-solid fa-layer-group"></i> Voucher Gabungan (${rec.items.length} Item)</span>
+                                <span class="opacity-80">${rec.date}</span>
+                            </div>
+                            <div class="flex justify-between items-center mt-1 font-medium">
+                                <span id="sidebar-paidto-merged-${code}" class="${isSelected ? "text-blue-100" : "text-gray-500"} truncate max-w-[130px]">${rec.paidTo || "Tanpa Penerima"}</span>
+                                <span class="font-mono text-sm font-bold">Rp ${rec.total.toLocaleString("id-ID")}</span>
+                            </div>
+                        `;
+
+              itemDiv.onclick = () => {
+                currentSelectedType = "merged";
+                currentSelectedCode = code;
+                currentSelectedId = rec.id;
+
+                clearSidebarSelectionStyles();
+                itemDiv.className =
+                  "p-2 rounded-lg cursor-pointer transition text-xs flex flex-col gap-1 border bg-blue-600 text-white border-blue-600";
+                selectVoucher(rec, true, rec.id);
+              };
+              card.appendChild(itemDiv);
+
+              // Opsi 2: Dipecah Per Baris Transaksi Aslinya
+            } else {
+              const subListDiv = document.createElement("div");
+              subListDiv.className =
+                "space-y-1.5 max-h-[160px] overflow-y-auto pr-0.5";
+
+              rec.items.forEach((item, itemIdx) => {
+                const isSelected =
+                  currentSelectedType === "single" &&
+                  currentSelectedId === rec.id &&
+                  currentSelectedCode === `${code}-${itemIdx}`;
+                const subItemDiv = document.createElement("div");
+                subItemDiv.className = `p-2 rounded-lg cursor-pointer transition text-xs flex flex-col gap-1 border ${isSelected ? "bg-blue-600 text-white border-blue-600" : "hover:bg-gray-100 bg-white border-gray-100 text-gray-700"}`;
+
+                subItemDiv.innerHTML = `
+                                <div class="flex justify-between font-semibold">
+                                    <span class="truncate max-w-[140px]">${item.description}</span>
+                                    <span class="${isSelected ? "text-blue-100" : "text-gray-400"} font-mono">${rec.date}</span>
+                                </div>
+                                <div class="flex justify-between items-center mt-1">
+                                    <span class="${isSelected ? "text-blue-200" : "text-gray-400"} truncate max-w-[120px] font-medium">${rec.paidTo || "Tanpa Penerima"}</span>
+                                    <span class="font-mono font-bold ${isSelected ? "text-white" : "text-gray-900"}">Rp ${item.amount.toLocaleString("id-ID")}</span>
+                                </div>
+                            `;
+
+                subItemDiv.onclick = () => {
+                  currentSelectedType = "single";
+                  currentSelectedId = rec.id;
+                  currentSelectedCode = `${code}-${itemIdx}`;
+
+                  clearSidebarSelectionStyles();
+                  subItemDiv.className =
+                    "p-2 rounded-lg cursor-pointer transition text-xs flex flex-col gap-1 border bg-blue-600 text-white border-blue-600";
+
+                  let singleVoucher = {
+                    voucherCode: rec.voucherCode,
+                    date: rec.date,
+                    paidTo: rec.paidTo,
+                    items: [item],
+                    total: item.amount,
+                  };
+                  selectVoucher(singleVoucher, false, rec.id);
+                };
+                subListDiv.appendChild(subItemDiv);
+              });
+              card.appendChild(subListDiv);
+            }
+
+            container.appendChild(card);
+          });
+
+          // Auto-select item pertama jika belum ada yang aktif dipilih
+          if (!currentSelectedType && allRecords.length > 0) {
+            const firstRec = allRecords[0];
+            currentSelectedType = "merged";
+            currentSelectedCode = firstRec.voucherCode;
+            currentSelectedId = firstRec.id;
+            selectVoucher(firstRec, true, firstRec.id);
+          }
+        };
+      }
+
+      function clearSidebarSelectionStyles() {
+        document.querySelectorAll(".cursor-pointer").forEach((el) => {
+          el.classList.remove("bg-blue-600", "text-white", "border-blue-600");
+        });
+      }
+
+      // 8. Tampilkan Voucher Pilihan di Lembar Kertas Preview Cetak
+      function selectVoucher(pv, isGrouped, id) {
+        const inputField = document.getElementById("paidToInput");
+        inputField.value = pv.paidTo || "";
+
+        inputField.oninput = function () {
+          updatePaidToDatabase(id, this.value, isGrouped);
+        };
+
+        renderPrintLayout(pv);
+      }
+
+      // 9. Simpan Nama Penerima (Paid To) Real-time
+      function updatePaidToDatabase(id, value, isGrouped) {
+        const tx = db.transaction("vouchers", "readwrite");
+        const store = tx.objectStore("vouchers");
+
+        store.get(Number(id)).onsuccess = (e) => {
+          const rec = e.target.result;
+          if (rec) {
+            rec.paidTo = value;
+            store.put(rec);
+          }
+        };
+
+        const paperDisplay = document.getElementById("printPaidToText");
+        if (paperDisplay)
+          paperDisplay.innerText = value || "...........................";
+
+        if (isGrouped) {
+          const sidebarText = document.getElementById(
+            `sidebar-paidto-merged-${currentSelectedCode}`,
+          );
+          if (sidebarText) sidebarText.innerText = value || "Tanpa Penerima";
+        }
+      }
+
+      // 10. Tampilan Lembar Form Cetak Bersih
+      function renderPrintLayout(pv) {
+        const printArea = document.getElementById("printArea");
+
+        let rowHTML = "";
+        pv.items.forEach((item, i) => {
+          rowHTML += `
+                    <tr>
+                        <td class="border border-black p-1.5 text-center">${i + 1}</td>
+                        <td class="border border-black p-1.5"></td>
+                        <td class="border border-black p-1.5"></td>
+                        <td class="border border-black p-1.5">${item.description}</td>
+                        <td class="border border-black p-1.5 text-right font-mono pr-2">Rp ${item.amount.toLocaleString("id-ID")}</td>
+                    </tr>
+                `;
+        });
+
+        // Isian baris kosong pelengkap (Proporsional minimal 3 baris)
+        for (let i = pv.items.length; i < 3; i++) {
+          rowHTML += `
+                    <tr>
+                        <td class="border border-black p-1.5 text-center h-6"></td>
+                        <td class="border border-black p-1.5"></td>
+                        <td class="border border-black p-1.5"></td>
+                        <td class="border border-black p-1.5"></td>
+                        <td class="border border-black p-1.5"></td>
+                    </tr>
+                `;
+        }
+
+        printArea.innerHTML = `
+                <div class="text-center font-bold text-xl mb-6 underline">PAYMENT VOUCHER</div>
+
+                <div class="flex flex-col gap-2 mb-4 font-semibold text-sm">
+                    <div class="flex items-center">
+                        <div class="w-32">Source No</div>
+                        <div class="mr-2">:</div>
+                        <div class="border-b border-black flex-1 max-w-xs font-mono">${pv.voucherCode}</div>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-32">Paid to</div>
+                        <div class="mr-2">:</div>
+                        <div id="printPaidToText" class="border-b border-black flex-1 max-w-xs font-bold text-blue-900">${pv.paidTo || "..........................."}</div>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-32">Date</div>
+                        <div class="mr-2">:</div>
+                        <div class="border-b border-black flex-1 max-w-xs">${pv.date}</div>
+                    </div>
+                </div>
+
+                <table class="w-full border-collapse border border-black text-sm mb-4">
+                    <thead>
+                        <tr class="font-bold text-center bg-gray-50">
+                            <th class="border border-black p-1.5 w-10">NO</th>
+                            <th class="border border-black p-1.5 w-24">Inv. Date</th>
+                            <th class="border border-black p-1.5 w-32">Invoice No.</th>
+                            <th class="border border-black p-1.5">Description</th>
+                            <th class="border border-black p-1.5 w-40">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowHTML}
+                        <tr>
+                            <td colspan="3" class="border border-black bg-gray-50"></td>
+                            <td class="border border-black p-1.5 text-right font-bold pr-4 bg-gray-50">TOTAL :</td>
+                            <td class="border border-black p-1.5 text-right font-bold font-mono pr-2 bg-gray-50 text-indigo-900">Rp ${pv.total.toLocaleString("id-ID")}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="flex justify-between text-center mt-12 text-sm font-semibold">
+                    <div class="w-1/3">
+                        <p class="mb-16">Prepared by.</p>
+                        <p>_____________________</p>
+                    </div>
+                    <div class="w-1/3">
+                        <p class="mb-16">Acknowledged by.</p>
+                        <p>_____________________</p>
+                    </div>
+                    <div class="w-1/3">
+                        <p class="mb-16">Approved by.</p>
+                        <p>_____________________</p>
+                    </div>
+                </div>
+            `;
+      }
+
+      function clearDatabase() {
+        if (
+          confirm("Anda yakin ingin menghapus seluruh histori cetak Voucher?")
+        ) {
+          const tx = db.transaction("vouchers", "readwrite");
+          tx.objectStore("vouchers").clear();
+          tx.oncomplete = () => {
+            voucherMergeStates = {};
+            currentSelectedType = "";
+            currentSelectedId = null;
+            currentSelectedCode = "";
+            loadHistory();
+            document.getElementById("paidToInput").value = "";
+            document.getElementById("printArea").innerHTML =
+              '<p class="text-center text-gray-400 italic py-20">Pilih voucher dari daftar di sebelah kiri.</p>';
+          };
+        }
+      }
     </script>
-    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
-</body>
+  </body>
 </html>
