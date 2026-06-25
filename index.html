@@ -1,47 +1,77 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test Kamera</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Scanner Kain Stabil</title>
     <style>
-        body { background: #000; color: #fff; text-align: center; }
-        #canvasOutput { width: 100%; border: 2px solid red; }
+        body { background: #1a1a1a; color: white; text-align: center; margin: 0; padding: 10px; }
+        #canvasOutput { width: 100%; max-width: 400px; border: 2px solid #555; background: #000; }
+        #videoInput { position: absolute; top: -9999px; }
+        #log { color: #f1c40f; font-size: 12px; margin: 10px; }
+        button { background: #2ecc71; padding: 15px; width: 100%; border: none; color: white; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h2>Tes Kamera Mentah</h2>
-    <video id="videoInput" style="display:none;"></video>
+    <h2>Scanner Kain</h2>
+    <div id="log">Status: Menunggu AI...</div>
+    <video id="videoInput" playsinline autoplay muted></video>
     <canvas id="canvasOutput"></canvas>
-    <button id="startBtn" onclick="start()">Mulai Tes Kamera</button>
-    <div id="log">Log: Siap</div>
+    <br>
+    <button id="startBtn" disabled>Mulai Pemindaian</button>
 
     <script>
-        function log(m) { document.getElementById('log').innerText = m; }
-        
-        async function start() {
+        let video = document.getElementById('videoInput');
+        let canvas = document.getElementById('canvasOutput');
+        let log = document.getElementById('log');
+        let streaming = false;
+
+        function logger(msg) { log.innerText = "Status: " + msg; }
+
+        function onOpenCvReady() {
+            document.getElementById('startBtn').disabled = false;
+            logger("AI Siap, silakan klik mulai.");
+        }
+
+        async function startCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                const video = document.getElementById('videoInput');
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" }, audio: false 
+                });
                 video.srcObject = stream;
-                video.play();
                 
-                video.onloadedmetadata = () => {
-                    log("Video metadata siap. Menggambar ke Canvas...");
-                    const canvas = document.getElementById('canvasOutput');
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    const ctx = canvas.getContext('2d');
-                    
-                    function draw() {
-                        ctx.drawImage(video, 0, 0); // Menggambar langsung tanpa OpenCV
-                        requestAnimationFrame(draw);
+                // --- KUNCI: Menunggu video punya dimensi ---
+                let checkReady = setInterval(() => {
+                    if (video.videoWidth > 0) {
+                        clearInterval(checkReady);
+                        logger("Video siap, memulai proses...");
+                        initOpenCV();
                     }
-                    draw();
-                };
-            } catch (e) {
-                log("Error: " + e.message);
+                }, 500);
+
+            } catch (err) {
+                logger("Error: " + err.message);
             }
         }
+
+        function initOpenCV() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+            let dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
+            let cap = new cv.VideoCapture(video);
+
+            function process() {
+                cap.read(src);
+                cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
+                cv.imshow('canvasOutput', dst);
+                requestAnimationFrame(process);
+            }
+            process();
+        }
+
+        document.getElementById('startBtn').onclick = startCamera;
     </script>
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
 </body>
 </html>
