@@ -8,6 +8,10 @@
         body { font-family: sans-serif; background-color: #1a1a1a; color: white; text-align: center; padding: 10px; margin: 0; }
         .container { max-width: 500px; margin: 0 auto; }
         #canvasOutput { width: 100%; border: 2px solid #444; border-radius: 8px; background: #000; }
+        
+        /* PENTING: Jangan gunakan display: none! Kita pindahkan ke luar layar */
+        #videoInput { position: absolute; top: -9999px; left: -9999px; opacity: 0; }
+        
         #log { background: #333; color: #0f0; padding: 10px; font-size: 12px; text-align: left; margin: 10px 0; border-radius: 5px; height: 100px; overflow-y: scroll; }
         button { background: #2ecc71; color: white; border: none; padding: 15px 30px; font-size: 18px; border-radius: 8px; width: 100%; margin-top: 10px; }
     </style>
@@ -19,7 +23,7 @@
     <div id="status">Memuat modul AI...</div>
     <div id="log">Logs:<br></div>
     
-    <video id="videoInput" style="display:none;" playsinline></video>
+    <video id="videoInput" playsinline></video>
     <canvas id="canvasOutput"></canvas>
     
     <button id="startBtn" disabled>Mulai Pemindaian</button>
@@ -28,8 +32,8 @@
 <script>
     let video = document.getElementById('videoInput');
     let canvas = document.getElementById('canvasOutput');
-    let ctx = canvas.getContext('2d');
     let logDiv = document.getElementById('log');
+    let src, dst, cap;
 
     function logger(msg) {
         logDiv.innerHTML += msg + "<br>";
@@ -44,19 +48,20 @@
 
     async function startCamera() {
         try {
-            logger("Meminta akses kamera...");
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "environment", width: 640, height: 480 }, 
+                video: { facingMode: "environment" }, 
                 audio: false 
             });
             video.srcObject = stream;
             video.play();
-            logger("Kamera terhubung.");
             
             video.onloadedmetadata = () => {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                logger("Video meta siap.");
+                src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+                dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
+                cap = new cv.VideoCapture(video);
+                logger("Kamera terhubung & Matriks siap.");
                 processVideo();
             };
         } catch (err) {
@@ -65,18 +70,23 @@
     }
 
     function processVideo() {
-        let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-        let dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-        let cap = new cv.VideoCapture(video);
+        // Cek apakah video siap diproses
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+            requestAnimationFrame(processVideo);
+            return;
+        }
 
-        function render() {
+        try {
             cap.read(src);
-            // Contoh pemrosesan sederhana (grayscale)
             cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
             cv.imshow('canvasOutput', dst);
-            requestAnimationFrame(render);
+            
+            // Log frame pertama untuk memastikan data mengalir
+            if (Math.random() < 0.05) logger("Frame diproses..."); 
+        } catch (err) {
+            logger("Error di loop: " + err.message);
         }
-        render();
+        requestAnimationFrame(processVideo);
     }
 
     document.getElementById('startBtn').onclick = startCamera;
