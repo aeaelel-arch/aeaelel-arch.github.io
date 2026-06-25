@@ -2,109 +2,93 @@
 <html lang="id">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>QC Fabric AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QC Kain AI</title>
     <style>
-        body { font-family: sans-serif; background-color: #1a1a1a; color: white; text-align: center; margin: 0; padding: 10px; }
-        .container { max-width: 500px; margin: 0 auto; }
-        #canvasOutput { width: 100%; border: 4px solid #444; border-radius: 8px; background: #000; }
-        #status-bar { background: #333; padding: 10px; margin: 10px 0; border-radius: 5px; font-weight: bold; }
-        .btn-group { display: flex; gap: 10px; }
-        button { flex: 1; padding: 15px; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; }
-        #startBtn { background: #2ecc71; }
-        #stopBtn { background: #e74c3c; }
+        body { background: #1a1a1a; color: white; text-align: center; padding: 10px; }
+        /* Video dan Canvas dibuat terlihat agar browser tidak mematikannya */
+        video, canvas { width: 90%; max-width: 400px; border: 2px solid #555; background: #000; margin-top: 10px; }
+        button { background: #2ecc71; padding: 15px; width: 90%; border: none; color: white; font-weight: bold; font-size: 16px; margin-top: 20px; }
     </style>
 </head>
 <body>
-
-<div class="container">
-    <h2>🧵 QC Kain AI</h2>
-    <div id="status-bar">Memuat AI...</div>
+    <h2>QC Kain (Live View)</h2>
+    <div id="status">Status: Standby</div>
     
-    <video id="videoInput" style="display:none;" playsinline></video>
+    <video id="videoInput" autoplay playsinline></video>
     <canvas id="canvasOutput"></canvas>
-    
-    <div class="btn-group">
-        <button id="startBtn" disabled>Mulai QC</button>
-        <button id="stopBtn">Stop</button>
-    </div>
-</div>
 
-<script>
-    let video = document.getElementById('videoInput'), canvas = document.getElementById('canvasOutput');
-    let statusBar = document.getElementById('status-bar');
-    let streaming = false, src, dst, gray, thresh, hierarchy;
+    <br>
+    <button id="startBtn" disabled>Mulai Pemindaian</button>
 
-    function onOpenCvReady() {
-        document.getElementById('startBtn').disabled = false;
-        statusBar.innerText = "✅ AI Siap - Silakan Mulai";
-    }
+    <script>
+        let video = document.getElementById('videoInput');
+        let canvas = document.getElementById('canvasOutput');
+        let ctx = canvas.getContext('2d');
+        let status = document.getElementById('status');
+        let src, dst, gray, thresh, hierarchy;
 
-    async function startCamera() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-            video.srcObject = stream;
-            video.play();
-            
-            video.onloadedmetadata = () => {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                gray = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-                thresh = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-                hierarchy = new cv.Mat();
-                
-                streaming = true;
-                statusBar.innerText = "🔍 QC Berjalan...";
-                requestAnimationFrame(processVideo);
-            };
-        } catch (err) { statusBar.innerText = "Error: " + err.message; }
-    }
-
-    function processVideo() {
-        if (!streaming) return;
-        
-        let cap = new cv.VideoCapture(video);
-        cap.read(src);
-        
-        // 1. Proses Gambar (Grayscale -> Blur -> Threshold)
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-        cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
-
-        // 2. Deteksi Kontur (Cari Lubang)
-        let contours = new cv.MatVector();
-        cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-        // Salin ke canvas untuk ditampilkan
-        src.copyTo(dst);
-        let defectCount = 0;
-
-        for (let i = 0; i < contours.size(); ++i) {
-            let cnt = contours.get(i);
-            let area = cv.contourArea(cnt);
-            if (area > 50 && area < 5000) { // Filter ukuran lubang
-                defectCount++;
-                let rect = cv.boundingRect(cnt);
-                cv.rectangle(dst, new cv.Point(rect.x, rect.y), 
-                             new cv.Point(rect.x + rect.width, rect.y + rect.height), 
-                             [255, 0, 0, 255], 3);
-            }
-            cnt.delete();
+        function onOpenCvReady() {
+            document.getElementById('startBtn').disabled = false;
+            status.innerText = "Status: AI Siap!";
         }
 
-        cv.imshow('canvasOutput', dst);
-        statusBar.innerText = defectCount > 0 ? `⚠️ Ditemukan ${defectCount} Pinhole!` : "✅ Kain Bersih";
-        
-        contours.delete();
-        requestAnimationFrame(processVideo);
-    }
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" }, audio: false 
+                });
+                video.srcObject = stream;
+                video.play();
+                status.innerText = "Status: Kamera Aktif...";
+                
+                // Tunggu sampai video benar-benar punya dimensi
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    // Inisialisasi Matriks
+                    src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+                    dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+                    gray = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
+                    thresh = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
+                    hierarchy = new cv.Mat();
+                    
+                    status.innerText = "Status: Memulai QC...";
+                    processVideo();
+                };
+            } catch (err) { status.innerText = "Error: " + err.message; }
+        }
 
-    document.getElementById('startBtn').onclick = startCamera;
-    document.getElementById('stopBtn').onclick = () => location.reload(); // Refresh untuk stop
-</script>
+        function processVideo() {
+            let cap = new cv.VideoCapture(video);
+            
+            function loop() {
+                cap.read(src);
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 2);
+                
+                let contours = new cv.MatVector();
+                cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                
+                src.copyTo(dst);
+                for (let i = 0; i < contours.size(); ++i) {
+                    let cnt = contours.get(i);
+                    let area = cv.contourArea(cnt);
+                    if (area > 50 && area < 5000) {
+                        let rect = cv.boundingRect(cnt);
+                        cv.rectangle(dst, new cv.Point(rect.x, rect.y), new cv.Point(rect.x + rect.width, rect.y + rect.height), [255, 0, 0, 255], 3);
+                    }
+                    cnt.delete();
+                }
+                cv.imshow('canvasOutput', dst);
+                contours.delete();
+                requestAnimationFrame(loop);
+            }
+            loop();
+        }
 
-<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
+        document.getElementById('startBtn').onclick = startCamera;
+    </script>
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
 </body>
 </html>
