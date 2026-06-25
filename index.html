@@ -1,147 +1,88 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pinhole Detector Mobile</title>
+    <title>Scanner Kain Pro</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; text-align: center; }
-        h2 { color: #2C3E50; }
-        .video-container { position: relative; display: inline-block; width: 100%; max-width: 400px; }
-        video, canvas { width: 100%; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); background-color: #000; }
-        canvas { position: absolute; top: 0; left: 0; z-index: 10; }
-        button { background-color: #2ECC71; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 5px; cursor: pointer; margin-top: 15px; font-weight: bold; width: 100%; max-width: 400px; }
-        button:disabled { background-color: #95a5a6; }
-        #status { margin-top: 10px; font-weight: bold; color: #e74c3c; }
-        #loading-indicator { font-size: 16px; font-weight: bold; color: #f39c12; margin-bottom: 15px; }
+        body { font-family: sans-serif; background-color: #1a1a1a; color: white; text-align: center; padding: 10px; margin: 0; }
+        .container { max-width: 500px; margin: 0 auto; }
+        #canvasOutput { width: 100%; border: 2px solid #444; border-radius: 8px; background: #000; }
+        #log { background: #333; color: #0f0; padding: 10px; font-size: 12px; text-align: left; margin: 10px 0; border-radius: 5px; height: 100px; overflow-y: scroll; }
+        button { background: #2ecc71; color: white; border: none; padding: 15px 30px; font-size: 18px; border-radius: 8px; width: 100%; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h2>🧵 Mobile Fabric Scanner</h2>
+<div class="container">
+    <h2>Scanner Kain</h2>
+    <div id="status">Memuat modul AI...</div>
+    <div id="log">Logs:<br></div>
     
-    <div id="loading-indicator">⏳ Sedang mengunduh modul AI OpenCV (sekitar 8MB)... Harap tunggu.</div>
+    <video id="videoInput" style="display:none;" playsinline></video>
+    <canvas id="canvasOutput"></canvas>
     
-    <div class="video-container">
-        <video id="videoInput" autoplay playsinline style="display:none;"></video>
-        <canvas id="canvasOutput" width="320" height="240"></canvas>
-    </div>
-
-    <div id="status">Sistem belum aktif.</div>
     <button id="startBtn" disabled>Mulai Pemindaian</button>
+</div>
 
-    <script>
-        let video = document.getElementById('videoInput');
-        let startBtn = document.getElementById('startBtn');
-        let statusText = document.getElementById('status');
-        let loadingIndicator = document.getElementById('loading-indicator');
-        let streaming = false;
-        let src, dst, gray, blurred, thresh, hierarchy;
+<script>
+    let video = document.getElementById('videoInput');
+    let canvas = document.getElementById('canvasOutput');
+    let ctx = canvas.getContext('2d');
+    let logDiv = document.getElementById('log');
 
-        // Fungsi jika OpenCV berhasil dimuat
-        function onOpenCvReady() {
-            loadingIndicator.innerText = "✅ Mesin AI Siap digunakan.";
-            loadingIndicator.style.color = "#2ECC71";
-            startBtn.disabled = false;
-            statusText.innerText = "Silakan klik tombol mulai.";
-            statusText.style.color = "#34495e";
+    function logger(msg) {
+        logDiv.innerHTML += msg + "<br>";
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function onOpenCvReady() {
+        document.getElementById('status').innerText = "✅ AI Siap.";
+        document.getElementById('startBtn').disabled = false;
+        logger("OpenCV Ready");
+    }
+
+    async function startCamera() {
+        try {
+            logger("Meminta akses kamera...");
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "environment", width: 640, height: 480 }, 
+                audio: false 
+            });
+            video.srcObject = stream;
+            video.play();
+            logger("Kamera terhubung.");
+            
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                logger("Video meta siap.");
+                processVideo();
+            };
+        } catch (err) {
+            logger("ERROR: " + err.message);
         }
+    }
 
-        // Fungsi jika OpenCV gagal dimuat karena internet/blokir
-        function onOpenCvError() {
-            loadingIndicator.innerText = "❌ Gagal mengunduh AI. Cek koneksi internet Anda lalu refresh halaman ini.";
-            loadingIndicator.style.color = "#e74c3c";
-        }
+    function processVideo() {
+        let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+        let dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
+        let cap = new cv.VideoCapture(video);
 
-        startBtn.addEventListener('click', () => {
-            if (!streaming) {
-                startCamera();
-            } else {
-                stopCamera();
-            }
-        });
-
-        function startCamera() {
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: 640, height: 480 }, audio: false })
-                .then(function(stream) {
-                    video.srcObject = stream;
-                    video.play();
-                    streaming = true;
-                    startBtn.innerText = "Hentikan Pemindaian";
-                    startBtn.style.backgroundColor = "#e74c3c";
-                    statusText.innerText = "Kamera aktif. Menganalisis...";
-                    
-                    video.addEventListener("canplay", () => {
-                        src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                        dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-                        gray = new cv.Mat();
-                        blurred = new cv.Mat();
-                        thresh = new cv.Mat();
-                        hierarchy = new cv.Mat();
-                        requestAnimationFrame(processVideo);
-                    });
-                })
-                .catch(function(err) {
-                    statusText.innerText = "Akses kamera ditolak. Beri izin kamera di browser Anda.";
-                });
-        }
-
-        function stopCamera() {
-            let stream = video.srcObject;
-            let tracks = stream.getTracks();
-            tracks.forEach(track => track.stop());
-            video.srcObject = null;
-            streaming = false;
-            startBtn.innerText = "Mulai Pemindaian";
-            startBtn.style.backgroundColor = "#2ECC71";
-            statusText.innerText = "Sistem berhenti.";
-        }
-
-        function processVideo() {
-            if (!streaming) return;
-
-            let cap = new cv.VideoCapture(video);
+        function render() {
             cap.read(src);
-
-            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-            let ksize = new cv.Size(3, 3);
-            cv.GaussianBlur(gray, blurred, ksize, 0, 0, cv.BORDER_DEFAULT);
-            cv.adaptiveThreshold(blurred, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 11, 8);
-            
-            let contours = new cv.MatVector();
-            cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-            
-            let defectCount = 0;
-
-            for (let i = 0; i < contours.size(); ++i) {
-                let cnt = contours.get(i);
-                let area = cv.contourArea(cnt);
-                
-                if (area >= 8 && area <= 15000) {
-                    defectCount++;
-                    let rect = cv.boundingRect(cnt);
-                    let point1 = new cv.Point(rect.x, rect.y);
-                    let point2 = new cv.Point(rect.x + rect.width, rect.y + rect.height);
-                    cv.rectangle(src, point1, point2, [255, 0, 0, 255], 2);
-                }
-                cnt.delete();
-            }
-
-            if (defectCount > 0) {
-                statusText.innerText = `⚠️ Terdeteksi ${defectCount} anomali/pinhole!`;
-                statusText.style.color = "#e74c3c";
-            } else {
-                statusText.innerText = `✅ Bersih`;
-                statusText.style.color = "#2ECC71";
-            }
-
-            cv.imshow('canvasOutput', src);
-            contours.delete();
-            requestAnimationFrame(processVideo);
+            // Contoh pemrosesan sederhana (grayscale)
+            cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
+            cv.imshow('canvasOutput', dst);
+            requestAnimationFrame(render);
         }
-    </script>
-    
-    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" onerror="onOpenCvError();" type="text/javascript"></script>
+        render();
+    }
+
+    document.getElementById('startBtn').onclick = startCamera;
+</script>
+
+<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
 
 </body>
 </html>
